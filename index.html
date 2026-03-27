@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Baix Ter — Saltwater Intrusion Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<style>
+:root {
+  --bg: #f4f1eb;
+  --surface: #ffffff;
+  --ink: #1a1a18;
+  --ink2: #5a5a54;
+  --ink3: #9a9a90;
+  --accent: #1a4a3a;
+  --accent2: #c8a96e;
+  --fresh: #1D9E75;
+  --brackish: #EF9F27;
+  --saline: #E24B4A;
+  --border: rgba(26,26,24,0.10);
+  --r: 6px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Mono', monospace; background: var(--bg); color: var(--ink); min-height: 100vh; }
+
+/* ── Header ─────────────────────────────────────── */
+header {
+  background: var(--accent);
+  color: #fff;
+  padding: 2.5rem 2rem 2rem;
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1rem;
+}
+header h1 { font-family: 'Fraunces', serif; font-size: clamp(1.6rem, 4vw, 2.8rem); font-weight: 300; line-height: 1.1; letter-spacing: -0.02em; }
+header h1 em { font-style: italic; color: var(--accent2); }
+header p { font-size: 0.72rem; color: rgba(255,255,255,0.55); max-width: 340px; line-height: 1.6; margin-top: 0.5rem; }
+.header-meta { text-align: right; font-size: 0.7rem; color: rgba(255,255,255,0.4); line-height: 2; }
+.header-meta strong { color: rgba(255,255,255,0.75); }
+
+/* ── Metrics strip ──────────────────────────────── */
+.metrics {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.metric { padding: 1.25rem 1.5rem; border-right: 1px solid var(--border); }
+.metric:last-child { border-right: none; }
+.metric-label { font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink3); margin-bottom: 0.4rem; }
+.metric-value { font-family: 'Fraunces', serif; font-size: 2.2rem; font-weight: 600; line-height: 1; }
+.metric-sub { font-size: 0.65rem; color: var(--ink3); margin-top: 0.3rem; }
+
+/* ── Layout ─────────────────────────────────────── */
+.main { display: grid; grid-template-columns: 220px 1fr; min-height: calc(100vh - 160px); }
+nav { background: var(--surface); border-right: 1px solid var(--border); padding: 1.5rem 0; }
+nav ul { list-style: none; }
+nav li a {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0.75rem 1.5rem; font-size: 0.72rem; letter-spacing: 0.04em;
+  text-decoration: none; color: var(--ink2); text-transform: uppercase;
+  border-left: 2px solid transparent; transition: all .15s;
+}
+nav li a:hover { color: var(--ink); background: rgba(0,0,0,.03); }
+nav li a.active { color: var(--accent); border-left-color: var(--accent); background: rgba(26,74,58,.04); font-weight: 500; }
+nav .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+.panel { display: none; padding: 2rem; }
+.panel.active { display: block; }
+.panel-title { font-family: 'Fraunces', serif; font-size: 1.5rem; font-weight: 300; margin-bottom: 0.4rem; }
+.panel-sub { font-size: 0.7rem; color: var(--ink3); margin-bottom: 1.75rem; line-height: 1.7; max-width: 640px; }
+
+.chart-wrap { position: relative; width: 100%; height: 360px; margin-bottom: 1.5rem; }
+.chart-wrap-tall { position: relative; width: 100%; height: 440px; margin-bottom: 1.5rem; }
+.map-wrap { width: 100%; height: 420px; border-radius: var(--r); overflow: hidden; border: 1px solid var(--border); margin-bottom: 1.5rem; }
+
+/* ── Controls ────────────────────────────────────── */
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-bottom: 1.25rem; }
+.ctrl-group { display: flex; align-items: center; gap: 8px; }
+.ctrl-group label { font-size: 0.65rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink3); }
+select {
+  font-family: 'DM Mono', monospace; font-size: 0.72rem;
+  padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--r);
+  background: var(--surface); color: var(--ink); cursor: pointer;
+}
+
+/* ── Legend ──────────────────────────────────────── */
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 1rem; }
+.leg { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; color: var(--ink2); }
+.leg-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+/* ── Download button ─────────────────────────────── */
+.dl-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; font-family: 'DM Mono', monospace; font-size: 0.7rem;
+  border: 1px solid var(--border); border-radius: var(--r);
+  background: var(--surface); color: var(--ink2); cursor: pointer;
+  text-decoration: none; transition: all .15s; letter-spacing: 0.02em;
+}
+.dl-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(26,74,58,.04); }
+.dl-btn svg { width: 13px; height: 13px; }
+
+/* ── Info cards ──────────────────────────────────── */
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.5rem; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 1.25rem; }
+.card-title { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink3); margin-bottom: 0.75rem; }
+.card table { width: 100%; font-size: 0.7rem; border-collapse: collapse; }
+.card td { padding: 4px 0; color: var(--ink2); border-bottom: 1px solid var(--border); }
+.card td:last-child { text-align: right; color: var(--ink); font-weight: 500; }
+.card tr:last-child td { border-bottom: none; }
+
+/* ── Note ────────────────────────────────────────── */
+.note { font-size: 0.66rem; color: var(--ink3); line-height: 1.7; margin-top: 0.5rem; border-left: 2px solid var(--border); padding-left: 0.75rem; }
+
+/* ── Responsive ──────────────────────────────────── */
+@media (max-width: 768px) {
+  .main { grid-template-columns: 1fr; }
+  nav { display: flex; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); padding: 0; }
+  nav ul { display: flex; }
+  nav li a { border-left: none; border-bottom: 2px solid transparent; padding: 0.9rem 1.2rem; white-space: nowrap; }
+  nav li a.active { border-bottom-color: var(--accent); border-left: none; }
+  .metrics { grid-template-columns: 1fr 1fr; }
+  .metric { border-right: none; border-bottom: 1px solid var(--border); }
+  .cards { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Baix Ter<br><em>Saltwater Intrusion</em> Monitor</h1>
+    <p>EC-based seawater fraction analysis — 32 monitoring wells, 2007–2026. Linear mixing model applied to field conductivity measurements.</p>
+  </div>
+  <div class="header-meta">
+    <strong>EC_fw</strong> = 500 µS/cm<br>
+    <strong>EC_sw</strong> = 47,000 µS/cm<br>
+    <strong>f_sw</strong> = (EC − EC_fw) / (EC_sw − EC_fw)<br>
+    Catalonia, Spain · ETRS89
+  </div>
+</header>
+
+<div class="metrics" id="metrics"></div>
+
+<div class="main">
+  <nav>
+    <ul>
+      <li><a href="#" class="active" onclick="showPanel('transect',this)"><span class="dot" style="background:var(--saline)"></span>Transect</a></li>
+      <li><a href="#" onclick="showPanel('timeseries',this)"><span class="dot" style="background:var(--brackish)"></span>Time series</a></li>
+      <li><a href="#" onclick="showPanel('depth',this)"><span class="dot" style="background:var(--fresh)"></span>Depth profiles</a></li>
+      <li><a href="#" onclick="showPanel('wedge',this)"><span class="dot" style="background:var(--accent2)"></span>Wedge</a></li>
+      <li><a href="#" onclick="showPanel('map',this)"><span class="dot" style="background:#378ADD"></span>Map</a></li>
+    </ul>
+  </nav>
+
+  <!-- TRANSECT -->
+  <div class="panel active" id="panel-transect">
+    <p class="panel-title">Intrusion transect</p>
+    <p class="panel-sub">Mean seawater fraction per well versus distance from coast. Bubble size reflects number of measurements. A clear concentration gradient marks the saltwater wedge transition zone.</p>
+    <div class="legend">
+      <span class="leg"><span class="leg-swatch" style="background:var(--saline)"></span>Saline &gt;25%</span>
+      <span class="leg"><span class="leg-swatch" style="background:var(--brackish)"></span>Brackish 5–25%</span>
+      <span class="leg"><span class="leg-swatch" style="background:var(--fresh)"></span>Fresh &lt;5%</span>
+      <span class="leg"><span class="leg-swatch" style="background:#ccc"></span>Bubble = n obs</span>
+    </div>
+    <div class="chart-wrap"><canvas id="transectChart"></canvas></div>
+    <a class="dl-btn" id="dlCsv" href="#" download="swi_data.csv">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M3 12h10"/></svg>
+      Download CSV
+    </a>
+    <p class="note">Each point represents one well (all observations averaged). Coordinates in ETRS89 UTM zone 31N.</p>
+  </div>
+
+  <!-- TIME SERIES -->
+  <div class="panel" id="panel-timeseries">
+    <p class="panel-title">Time series</p>
+    <p class="panel-sub">Seawater fraction over time for a selected monitoring well. Large swings typically reflect seasonal recharge and pumping regime changes.</p>
+    <div class="controls">
+      <div class="ctrl-group"><label>Well</label>
+        <select id="wellSelect" onchange="updateTS()"></select>
+      </div>
+    </div>
+    <div class="chart-wrap"><canvas id="tsChart"></canvas></div>
+    <p class="note" id="tsNote"></p>
+  </div>
+
+  <!-- DEPTH -->
+  <div class="panel" id="panel-depth">
+    <p class="panel-title">Depth profiles</p>
+    <p class="panel-sub">Seawater fraction versus sampling depth for all wells measured in the selected year. Near-coastal wells (red) consistently show higher fractions at shallow depths.</p>
+    <div class="controls">
+      <div class="ctrl-group"><label>Year</label>
+        <select id="yearSelect" onchange="updateDepth()"></select>
+      </div>
+    </div>
+    <div class="chart-wrap-tall"><canvas id="depthChart"></canvas></div>
+    <p class="note">Depth is metres below ground level. Inverted axis follows hydrogeological convention.</p>
+  </div>
+
+  <!-- WEDGE -->
+  <div class="panel" id="panel-wedge">
+    <p class="panel-title">Wedge estimation</p>
+    <p class="panel-sub">Per-well maximum and mean seawater fraction ordered by distance from coast. The 50% isoline (Ghyben-Herzberg criterion) marks the theoretical saltwater wedge toe.</p>
+    <div class="chart-wrap-tall"><canvas id="wedgeChart"></canvas></div>
+    <div class="cards">
+      <div class="card">
+        <div class="card-title">Observed mixing zone</div>
+        <table id="wedgeTable"></table>
+      </div>
+      <div class="card">
+        <div class="card-title">Model assumptions</div>
+        <table>
+          <tr><td>Background EC (freshwater)</td><td>500 µS/cm</td></tr>
+          <tr><td>Seawater EC (Mediterranean)</td><td>47,000 µS/cm</td></tr>
+          <tr><td>Mixing model</td><td>Linear (conservative)</td></tr>
+          <tr><td>Interface criterion</td><td>f_sw = 0.50</td></tr>
+          <tr><td>Density ratio α</td><td>≈ 0.025</td></tr>
+          <tr><td>Observations</td><td id="nObs">—</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAP -->
+  <div class="panel" id="panel-map">
+    <p class="panel-title">Well locations</p>
+    <p class="panel-sub">Spatial distribution of monitoring wells coloured by mean seawater fraction. Coordinates converted from ETRS89 UTM 31N to WGS84 for display.</p>
+    <div class="map-wrap" id="leafletMap"></div>
+    <p class="note">Click any marker for well details. Basemap: OpenStreetMap contributors.</p>
+  </div>
+</div>
+
+<script>
+const RAW = [{"code": "17070-0009", "date": "2007-07-18", "value": 1022, "sw_fraction": 0.011226, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17191-0021", "date": "2007-07-18", "value": 1138, "sw_fraction": 0.01372, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17199-0029", "date": "2007-07-18", "value": 18910, "sw_fraction": 0.395914, "depth": 4.0, "distance_coast_m": 967.92, "x": 515786.54, "y": 4651312.11}, {"code": "17199-0031", "date": "2007-07-18", "value": 1639, "sw_fraction": 0.024495, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0044", "date": "2007-07-18", "value": 833, "sw_fraction": 0.007161, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17195-0028", "date": "2007-08-02", "value": 618, "sw_fraction": 0.002538, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17211-0025", "date": "2007-08-02", "value": 683, "sw_fraction": 0.003935, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17070-0007", "date": "2007-08-09", "value": 1104, "sw_fraction": 0.012989, "depth": 100.0, "distance_coast_m": 7847.71, "x": 508726.53, "y": 4651105.17}, {"code": "17070-0007", "date": "2008-07-17", "value": 811, "sw_fraction": 0.006688, "depth": 100.0, "distance_coast_m": 7847.71, "x": 508726.53, "y": 4651105.17}, {"code": "17199-0028", "date": "2008-07-17", "value": 1671, "sw_fraction": 0.025183, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0029", "date": "2008-07-17", "value": 20600, "sw_fraction": 0.432258, "depth": 4.0, "distance_coast_m": 967.92, "x": 515786.54, "y": 4651312.11}, {"code": "17199-0031", "date": "2008-07-17", "value": 1675, "sw_fraction": 0.025269, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0034", "date": "2008-07-17", "value": 1164, "sw_fraction": 0.01428, "depth": 6.0, "distance_coast_m": 2729.08, "x": 513522.0, "y": 4653031.0}, {"code": "17199-0037", "date": "2008-07-17", "value": 2640, "sw_fraction": 0.046022, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17199-0044", "date": "2008-07-17", "value": 1449, "sw_fraction": 0.020409, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17211-0025", "date": "2008-08-13", "value": 1114, "sw_fraction": 0.013204, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17070-0009", "date": "2008-10-01", "value": 795, "sw_fraction": 0.006344, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17070-0015", "date": "2008-10-01", "value": 793, "sw_fraction": 0.006301, "depth": 3.0, "distance_coast_m": 6321.13, "x": 510372.0, "y": 4650875.0}, {"code": "17191-0021", "date": "2008-10-07", "value": 987, "sw_fraction": 0.010473, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17022-0027", "date": "2008-10-16", "value": 922, "sw_fraction": 0.009075, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17081-0004", "date": "2008-10-16", "value": 805, "sw_fraction": 0.006559, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17081-0006", "date": "2008-10-16", "value": 13580, "sw_fraction": 0.28129, "depth": 50.0, "distance_coast_m": 5630.65, "x": 510647.55, "y": 4652632.15}, {"code": "17121-0027", "date": "2008-10-16", "value": 840, "sw_fraction": 0.007312, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17195-0028", "date": "2008-11-04", "value": 1050, "sw_fraction": 0.011828, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17022-0027", "date": "2009-06-17", "value": 533, "sw_fraction": 0.00071, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17070-0009", "date": "2009-06-17", "value": 777, "sw_fraction": 0.005957, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17199-0031", "date": "2009-06-17", "value": 1454, "sw_fraction": 0.020516, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17205-0012", "date": "2009-06-17", "value": 894, "sw_fraction": 0.008473, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17191-0021", "date": "2009-06-25", "value": 991, "sw_fraction": 0.010559, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17199-0028", "date": "2009-06-25", "value": 1589, "sw_fraction": 0.023419, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0029", "date": "2009-06-25", "value": 20400, "sw_fraction": 0.427957, "depth": 4.0, "distance_coast_m": 967.92, "x": 515786.54, "y": 4651312.11}, {"code": "17199-0034", "date": "2009-06-25", "value": 1277, "sw_fraction": 0.01671, "depth": 6.0, "distance_coast_m": 2729.08, "x": 513522.0, "y": 4653031.0}, {"code": "17199-0037", "date": "2009-06-25", "value": 2200, "sw_fraction": 0.036559, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17199-0044", "date": "2009-06-25", "value": 1328, "sw_fraction": 0.017806, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17211-0025", "date": "2009-07-23", "value": 567, "sw_fraction": 0.001441, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17081-0004", "date": "2009-07-28", "value": 886, "sw_fraction": 0.008301, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17121-0027", "date": "2009-07-28", "value": 826, "sw_fraction": 0.007011, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17081-0011", "date": "2009-07-29", "value": 846, "sw_fraction": 0.007441, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17195-0028", "date": "2009-07-29", "value": 687, "sw_fraction": 0.004022, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17199-0028", "date": "2010-06-16", "value": 1527, "sw_fraction": 0.022086, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0029", "date": "2010-06-16", "value": 24100, "sw_fraction": 0.507527, "depth": 4.0, "distance_coast_m": 967.92, "x": 515786.54, "y": 4651312.11}, {"code": "17199-0031", "date": "2010-06-16", "value": 1476, "sw_fraction": 0.020989, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0037", "date": "2010-06-16", "value": 2580, "sw_fraction": 0.044731, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17070-0009", "date": "2010-06-17", "value": 1051, "sw_fraction": 0.011849, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17081-0011", "date": "2010-06-17", "value": 1303, "sw_fraction": 0.017269, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17191-0021", "date": "2010-06-17", "value": 976, "sw_fraction": 0.010237, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17199-0044", "date": "2010-06-17", "value": 1481, "sw_fraction": 0.021097, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17022-0027", "date": "2010-07-13", "value": 998, "sw_fraction": 0.01071, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17070-0049", "date": "2010-07-13", "value": 602, "sw_fraction": 0.002194, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17205-0012", "date": "2010-07-13", "value": 587, "sw_fraction": 0.001871, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17195-0028", "date": "2010-07-22", "value": 579, "sw_fraction": 0.001699, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17081-0004", "date": "2010-07-28", "value": 985, "sw_fraction": 0.01043, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17081-0008", "date": "2010-07-28", "value": 607, "sw_fraction": 0.002301, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17121-0027", "date": "2010-07-28", "value": 569, "sw_fraction": 0.001484, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17070-0002", "date": "2010-07-29", "value": 1967, "sw_fraction": 0.031548, "depth": 6.0, "distance_coast_m": 7158.76, "x": 509596.53, "y": 4650535.16}, {"code": "17070-0012", "date": "2010-07-29", "value": 5760, "sw_fraction": 0.113118, "depth": 9.0, "distance_coast_m": 4793.88, "x": 512087.0, "y": 4650295.0}, {"code": "17211-0025", "date": "2010-07-29", "value": 702, "sw_fraction": 0.004344, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17022-0027", "date": "2011-07-19", "value": 994, "sw_fraction": 0.010624, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17070-0009", "date": "2011-07-19", "value": 777, "sw_fraction": 0.005957, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17070-0049", "date": "2011-07-19", "value": 702, "sw_fraction": 0.004344, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0004", "date": "2011-07-19", "value": 738, "sw_fraction": 0.005118, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17081-0008", "date": "2011-07-19", "value": 681, "sw_fraction": 0.003892, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17121-0027", "date": "2011-07-19", "value": 803, "sw_fraction": 0.006516, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17191-0021", "date": "2011-07-19", "value": 667, "sw_fraction": 0.003591, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17205-0012", "date": "2011-07-19", "value": 653, "sw_fraction": 0.00329, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17081-0011", "date": "2011-07-20", "value": 1178, "sw_fraction": 0.014581, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17211-0025", "date": "2011-07-20", "value": 658, "sw_fraction": 0.003398, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17195-0028", "date": "2012-01-26", "value": 985, "sw_fraction": 0.01043, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17199-0031", "date": "2012-01-26", "value": 1690, "sw_fraction": 0.025591, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0034", "date": "2012-01-26", "value": 1559, "sw_fraction": 0.022774, "depth": 6.0, "distance_coast_m": 2729.08, "x": 513522.0, "y": 4653031.0}, {"code": "17199-0037", "date": "2012-01-26", "value": 2425, "sw_fraction": 0.041398, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17199-0044", "date": "2012-01-26", "value": 1501, "sw_fraction": 0.021527, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17211-0025", "date": "2012-01-26", "value": 1199, "sw_fraction": 0.015032, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17070-0009", "date": "2012-02-02", "value": 1068, "sw_fraction": 0.012215, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17070-0049", "date": "2012-02-02", "value": 882, "sw_fraction": 0.008215, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0011", "date": "2012-02-02", "value": 1295, "sw_fraction": 0.017097, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17191-0021", "date": "2012-02-02", "value": 1001, "sw_fraction": 0.010774, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17081-0008", "date": "2012-02-09", "value": 1046, "sw_fraction": 0.011742, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17022-0027", "date": "2012-02-22", "value": 645, "sw_fraction": 0.003118, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17199-0031", "date": "2013-05-07", "value": 1786, "sw_fraction": 0.027656, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0034", "date": "2013-05-07", "value": 1351, "sw_fraction": 0.018301, "depth": 6.0, "distance_coast_m": 2729.08, "x": 513522.0, "y": 4653031.0}, {"code": "17199-0044", "date": "2013-05-07", "value": 1474, "sw_fraction": 0.020946, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17195-0028", "date": "2013-05-27", "value": 955, "sw_fraction": 0.009785, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17121-0027", "date": "2013-06-11", "value": 1162, "sw_fraction": 0.014237, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17197-0009", "date": "2013-06-11", "value": 1095, "sw_fraction": 0.012796, "depth": 150.0, "distance_coast_m": 6180.64, "x": 512086.07, "y": 4645194.97}, {"code": "17070-0012", "date": "2013-06-13", "value": 7200, "sw_fraction": 0.144086, "depth": 9.0, "distance_coast_m": 4793.88, "x": 512087.0, "y": 4650295.0}, {"code": "17199-0028", "date": "2013-06-13", "value": 1540, "sw_fraction": 0.022366, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0029", "date": "2013-06-13", "value": 25700, "sw_fraction": 0.541935, "depth": 4.0, "distance_coast_m": 967.92, "x": 515786.54, "y": 4651312.11}, {"code": "17199-0037", "date": "2013-06-13", "value": 2307, "sw_fraction": 0.03886, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17022-0027", "date": "2013-06-20", "value": 593, "sw_fraction": 0.002, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17070-0009", "date": "2013-06-20", "value": 830, "sw_fraction": 0.007097, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17070-0049", "date": "2013-06-20", "value": 970, "sw_fraction": 0.010108, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17191-0011", "date": "2013-06-20", "value": 1548, "sw_fraction": 0.022538, "depth": 9.0, "distance_coast_m": 9991.41, "x": 506232.0, "y": 4653068.0}, {"code": "17205-0012", "date": "2013-06-20", "value": 993, "sw_fraction": 0.010602, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17211-0025", "date": "2013-06-20", "value": 1300, "sw_fraction": 0.017204, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17057-0009", "date": "2013-06-26", "value": 1436, "sw_fraction": 0.020129, "depth": 12.0, "distance_coast_m": 13090.95, "x": 503562.0, "y": 4650115.0}, {"code": "17070-0002", "date": "2013-06-26", "value": 2587, "sw_fraction": 0.044882, "depth": 6.0, "distance_coast_m": 7158.76, "x": 509596.53, "y": 4650535.16}, {"code": "17070-0005", "date": "2013-06-26", "value": 1435, "sw_fraction": 0.020108, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17081-0008", "date": "2013-06-26", "value": 1606, "sw_fraction": 0.023785, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17081-0011", "date": "2013-06-26", "value": 1362, "sw_fraction": 0.018538, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17121-0061", "date": "2013-06-26", "value": 977, "sw_fraction": 0.010258, "depth": 105.0, "distance_coast_m": 7209.02, "x": 510279.5, "y": 4646728.15}, {"code": "17124-0011", "date": "2013-06-26", "value": 1011, "sw_fraction": 0.010989, "depth": 45.0, "distance_coast_m": 1459.6, "x": 515721.53, "y": 4648962.11}, {"code": "17124-0020", "date": "2013-06-26", "value": 1059, "sw_fraction": 0.012022, "depth": 78.0, "distance_coast_m": 2134.46, "x": 515123.2, "y": 4648273.1}, {"code": "17191-0021", "date": "2013-06-26", "value": 1061, "sw_fraction": 0.012065, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17199-0028", "date": "2014-05-26", "value": 1619, "sw_fraction": 0.024065, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0031", "date": "2014-05-26", "value": 1611, "sw_fraction": 0.023892, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0034", "date": "2014-05-26", "value": 1560, "sw_fraction": 0.022796, "depth": 6.0, "distance_coast_m": 2729.08, "x": 513522.0, "y": 4653031.0}, {"code": "17199-0037", "date": "2014-05-26", "value": 2329, "sw_fraction": 0.039333, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17081-0011", "date": "2014-05-27", "value": 1291, "sw_fraction": 0.017011, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17199-0029", "date": "2014-05-27", "value": 2628, "sw_fraction": 0.045763, "depth": 4.0, "distance_coast_m": 967.92, "x": 515786.54, "y": 4651312.11}, {"code": "17199-0044", "date": "2014-05-27", "value": 1516, "sw_fraction": 0.021849, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17211-0025", "date": "2014-05-27", "value": 1259, "sw_fraction": 0.016323, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17195-0028", "date": "2014-06-04", "value": 953, "sw_fraction": 0.009742, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17022-0027", "date": "2014-06-06", "value": 923, "sw_fraction": 0.009097, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17070-0005", "date": "2014-06-06", "value": 1476, "sw_fraction": 0.020989, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17070-0009", "date": "2014-06-06", "value": 850, "sw_fraction": 0.007527, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17070-0012", "date": "2014-06-06", "value": 855, "sw_fraction": 0.007634, "depth": 9.0, "distance_coast_m": 4793.88, "x": 512087.0, "y": 4650295.0}, {"code": "17070-0049", "date": "2014-06-06", "value": 997, "sw_fraction": 0.010688, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17124-0020", "date": "2014-06-11", "value": 1135, "sw_fraction": 0.013656, "depth": 78.0, "distance_coast_m": 2134.46, "x": 515123.2, "y": 4648273.1}, {"code": "17057-0009", "date": "2014-06-13", "value": 1503, "sw_fraction": 0.02157, "depth": 12.0, "distance_coast_m": 13090.95, "x": 503562.0, "y": 4650115.0}, {"code": "17081-0004", "date": "2014-06-13", "value": 971, "sw_fraction": 0.010129, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17121-0027", "date": "2014-06-13", "value": 913, "sw_fraction": 0.008882, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17191-0021", "date": "2014-06-13", "value": 1047, "sw_fraction": 0.011763, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17197-0009", "date": "2014-06-20", "value": 1127, "sw_fraction": 0.013484, "depth": 150.0, "distance_coast_m": 6180.64, "x": 512086.07, "y": 4645194.97}, {"code": "17191-0011", "date": "2014-07-09", "value": 608, "sw_fraction": 0.002323, "depth": 9.0, "distance_coast_m": 9991.41, "x": 506232.0, "y": 4653068.0}, {"code": "17195-0028", "date": "2015-06-18", "value": 941, "sw_fraction": 0.009484, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17199-0044", "date": "2015-06-18", "value": 1441, "sw_fraction": 0.020237, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17070-0005", "date": "2015-06-22", "value": 1358, "sw_fraction": 0.018452, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17070-0009", "date": "2015-06-22", "value": 827, "sw_fraction": 0.007032, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17070-0012", "date": "2015-06-22", "value": 3110, "sw_fraction": 0.056129, "depth": 9.0, "distance_coast_m": 4793.88, "x": 512087.0, "y": 4650295.0}, {"code": "17191-0011", "date": "2015-06-22", "value": 1167, "sw_fraction": 0.014344, "depth": 9.0, "distance_coast_m": 9991.41, "x": 506232.0, "y": 4653068.0}, {"code": "17199-0028", "date": "2015-06-22", "value": 808, "sw_fraction": 0.006624, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0029", "date": "2015-06-22", "value": 2250, "sw_fraction": 0.037634, "depth": 4.0, "distance_coast_m": 967.92, "x": 515786.54, "y": 4651312.11}, {"code": "17199-0031", "date": "2015-06-22", "value": 1330, "sw_fraction": 0.017849, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0034", "date": "2015-06-22", "value": 1588, "sw_fraction": 0.023398, "depth": 6.0, "distance_coast_m": 2729.08, "x": 513522.0, "y": 4653031.0}, {"code": "17199-0037", "date": "2015-06-22", "value": 2158, "sw_fraction": 0.035656, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17070-0002", "date": "2015-06-23", "value": 2405, "sw_fraction": 0.040968, "depth": 6.0, "distance_coast_m": 7158.76, "x": 509596.53, "y": 4650535.16}, {"code": "17081-0011", "date": "2015-06-23", "value": 1392, "sw_fraction": 0.019183, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17121-0027", "date": "2015-07-09", "value": 872, "sw_fraction": 0.008, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17121-0061", "date": "2015-07-09", "value": 922, "sw_fraction": 0.009075, "depth": 105.0, "distance_coast_m": 7209.02, "x": 510279.5, "y": 4646728.15}, {"code": "17124-0011", "date": "2015-07-10", "value": 1033, "sw_fraction": 0.011462, "depth": 45.0, "distance_coast_m": 1459.6, "x": 515721.53, "y": 4648962.11}, {"code": "17124-0020", "date": "2015-07-10", "value": 1101, "sw_fraction": 0.012925, "depth": 78.0, "distance_coast_m": 2134.46, "x": 515123.2, "y": 4648273.1}, {"code": "17191-0021", "date": "2015-07-10", "value": 1060, "sw_fraction": 0.012043, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17197-0009", "date": "2015-07-10", "value": 1083, "sw_fraction": 0.012538, "depth": 150.0, "distance_coast_m": 6180.64, "x": 512086.07, "y": 4645194.97}, {"code": "17057-0009", "date": "2015-07-15", "value": 1490, "sw_fraction": 0.02129, "depth": 12.0, "distance_coast_m": 13090.95, "x": 503562.0, "y": 4650115.0}, {"code": "17070-0049", "date": "2015-07-15", "value": 962, "sw_fraction": 0.009935, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0008", "date": "2015-07-15", "value": 909, "sw_fraction": 0.008796, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17211-0025", "date": "2015-07-15", "value": 1182, "sw_fraction": 0.014667, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17081-0004", "date": "2015-07-17", "value": 1484, "sw_fraction": 0.021161, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17205-0012", "date": "2015-07-21", "value": 1015, "sw_fraction": 0.011075, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17057-0009", "date": "2016-07-12", "value": 1237, "sw_fraction": 0.015849, "depth": 12.0, "distance_coast_m": 13090.95, "x": 503562.0, "y": 4650115.0}, {"code": "17195-0028", "date": "2016-07-19", "value": 725, "sw_fraction": 0.004839, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17124-0011", "date": "2016-08-04", "value": 598, "sw_fraction": 0.002108, "depth": 45.0, "distance_coast_m": 1459.6, "x": 515721.53, "y": 4648962.11}, {"code": "17124-0020", "date": "2016-08-04", "value": 1710, "sw_fraction": 0.026022, "depth": 78.0, "distance_coast_m": 2134.46, "x": 515123.2, "y": 4648273.1}, {"code": "17199-0028", "date": "2016-08-04", "value": 649, "sw_fraction": 0.003204, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0029", "date": "2016-08-04", "value": 14550, "sw_fraction": 0.302151, "depth": 4.0, "distance_coast_m": 967.92, "x": 515786.54, "y": 4651312.11}, {"code": "17199-0031", "date": "2016-08-04", "value": 1162, "sw_fraction": 0.014237, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0034", "date": "2016-08-04", "value": 1009, "sw_fraction": 0.010946, "depth": 6.0, "distance_coast_m": 2729.08, "x": 513522.0, "y": 4653031.0}, {"code": "17199-0037", "date": "2016-08-04", "value": 1710, "sw_fraction": 0.026022, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17199-0044", "date": "2016-08-04", "value": 1133, "sw_fraction": 0.013613, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17070-0005", "date": "2016-08-10", "value": 1012, "sw_fraction": 0.011011, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17070-0009", "date": "2016-08-10", "value": 584, "sw_fraction": 0.001806, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17191-0011", "date": "2016-08-10", "value": 881, "sw_fraction": 0.008194, "depth": 9.0, "distance_coast_m": 9991.41, "x": 506232.0, "y": 4653068.0}, {"code": "17211-0025", "date": "2016-08-11", "value": 973, "sw_fraction": 0.010172, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17022-0027", "date": "2016-08-24", "value": 1071, "sw_fraction": 0.01228, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17081-0004", "date": "2016-08-24", "value": 733, "sw_fraction": 0.005011, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17205-0012", "date": "2016-08-24", "value": 789, "sw_fraction": 0.006215, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17070-0012", "date": "2016-09-06", "value": 677, "sw_fraction": 0.003806, "depth": 9.0, "distance_coast_m": 4793.88, "x": 512087.0, "y": 4650295.0}, {"code": "17081-0011", "date": "2016-09-06", "value": 1009, "sw_fraction": 0.010946, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17191-0021", "date": "2016-09-06", "value": 839, "sw_fraction": 0.00729, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17121-0061", "date": "2016-09-27", "value": 682, "sw_fraction": 0.003914, "depth": 105.0, "distance_coast_m": 7209.02, "x": 510279.5, "y": 4646728.15}, {"code": "17070-0049", "date": "2016-09-28", "value": 744, "sw_fraction": 0.005247, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0008", "date": "2016-09-28", "value": 762, "sw_fraction": 0.005634, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17121-0027", "date": "2016-09-28", "value": 726, "sw_fraction": 0.00486, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17197-0009", "date": "2016-09-28", "value": 809, "sw_fraction": 0.006645, "depth": 150.0, "distance_coast_m": 6180.64, "x": 512086.07, "y": 4645194.97}, {"code": "17070-0005", "date": "2017-05-26", "value": 1136, "sw_fraction": 0.013677, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17070-0009", "date": "2017-05-26", "value": 765, "sw_fraction": 0.005699, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17195-0028", "date": "2017-05-26", "value": 933, "sw_fraction": 0.009312, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17070-0012", "date": "2017-06-26", "value": 810, "sw_fraction": 0.006667, "depth": 9.0, "distance_coast_m": 4793.88, "x": 512087.0, "y": 4650295.0}, {"code": "17121-0061", "date": "2017-06-26", "value": 950, "sw_fraction": 0.009677, "depth": 105.0, "distance_coast_m": 7209.02, "x": 510279.5, "y": 4646728.15}, {"code": "17124-0020", "date": "2017-06-26", "value": 1030, "sw_fraction": 0.011398, "depth": 78.0, "distance_coast_m": 2134.46, "x": 515123.2, "y": 4648273.1}, {"code": "17197-0009", "date": "2017-06-26", "value": 1063, "sw_fraction": 0.012108, "depth": 150.0, "distance_coast_m": 6180.64, "x": 512086.07, "y": 4645194.97}, {"code": "17199-0028", "date": "2017-06-26", "value": 894, "sw_fraction": 0.008473, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0029", "date": "2017-06-26", "value": 18320, "sw_fraction": 0.383226, "depth": 4.0, "distance_coast_m": 967.92, "x": 515786.54, "y": 4651312.11}, {"code": "17199-0031", "date": "2017-06-26", "value": 1362, "sw_fraction": 0.018538, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0034", "date": "2017-06-26", "value": 1253, "sw_fraction": 0.016194, "depth": 6.0, "distance_coast_m": 2729.08, "x": 513522.0, "y": 4653031.0}, {"code": "17199-0037", "date": "2017-06-26", "value": 2205, "sw_fraction": 0.036667, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17199-0044", "date": "2017-06-26", "value": 1454, "sw_fraction": 0.020516, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17057-0009", "date": "2017-06-27", "value": 1554, "sw_fraction": 0.022667, "depth": 12.0, "distance_coast_m": 13090.95, "x": 503562.0, "y": 4650115.0}, {"code": "17124-0011", "date": "2017-06-27", "value": 1040, "sw_fraction": 0.011613, "depth": 45.0, "distance_coast_m": 1459.6, "x": 515721.53, "y": 4648962.11}, {"code": "17126-0040", "date": "2017-07-06", "value": 1242, "sw_fraction": 0.015957, "depth": 18.0, "distance_coast_m": 12262.67, "x": 503958.54, "y": 4653089.2}, {"code": "17191-0021", "date": "2017-07-06", "value": 1045, "sw_fraction": 0.01172, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17211-0025", "date": "2017-07-06", "value": 1207, "sw_fraction": 0.015204, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17022-0027", "date": "2017-07-12", "value": 862, "sw_fraction": 0.007785, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17070-0049", "date": "2017-07-12", "value": 981, "sw_fraction": 0.010344, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0004", "date": "2017-07-12", "value": 923, "sw_fraction": 0.009097, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17081-0008", "date": "2017-07-12", "value": 992, "sw_fraction": 0.010581, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17121-0027", "date": "2017-07-12", "value": 879, "sw_fraction": 0.008151, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17205-0012", "date": "2017-07-12", "value": 1055, "sw_fraction": 0.011935, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17070-0005", "date": "2017-08-01", "value": 1214, "sw_fraction": 0.015355, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17195-0028", "date": "2018-05-17", "value": 995, "sw_fraction": 0.010645, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17022-0027", "date": "2018-05-31", "value": 629, "sw_fraction": 0.002774, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17057-0009", "date": "2018-05-31", "value": 1137, "sw_fraction": 0.013699, "depth": 12.0, "distance_coast_m": 13090.95, "x": 503562.0, "y": 4650115.0}, {"code": "17070-0005", "date": "2018-05-31", "value": 1480, "sw_fraction": 0.021075, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17070-0009", "date": "2018-05-31", "value": 824, "sw_fraction": 0.006968, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17070-0012", "date": "2018-05-31", "value": 1784, "sw_fraction": 0.027613, "depth": 9.0, "distance_coast_m": 4793.88, "x": 512087.0, "y": 4650295.0}, {"code": "17070-0049", "date": "2018-05-31", "value": 931, "sw_fraction": 0.009269, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0004", "date": "2018-05-31", "value": 891, "sw_fraction": 0.008409, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17081-0011", "date": "2018-05-31", "value": 1331, "sw_fraction": 0.017871, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17121-0027", "date": "2018-05-31", "value": 833, "sw_fraction": 0.007161, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17191-0011", "date": "2018-05-31", "value": 1124, "sw_fraction": 0.013419, "depth": 9.0, "distance_coast_m": 9991.41, "x": 506232.0, "y": 4653068.0}, {"code": "17199-0044", "date": "2018-05-31", "value": 1416, "sw_fraction": 0.019699, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17211-0025", "date": "2018-06-05", "value": 1114, "sw_fraction": 0.013204, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17199-0028", "date": "2018-06-06", "value": 822, "sw_fraction": 0.006925, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0029", "date": "2018-06-06", "value": 17020, "sw_fraction": 0.355269, "depth": 4.0, "distance_coast_m": 967.92, "x": 515786.54, "y": 4651312.11}, {"code": "17199-0037", "date": "2018-06-06", "value": 2340, "sw_fraction": 0.03957, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17205-0012", "date": "2018-06-06", "value": 949, "sw_fraction": 0.009656, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17081-0008", "date": "2018-06-07", "value": 1650, "sw_fraction": 0.024731, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17121-0061", "date": "2018-06-07", "value": 892, "sw_fraction": 0.00843, "depth": 105.0, "distance_coast_m": 7209.02, "x": 510279.5, "y": 4646728.15}, {"code": "17124-0011", "date": "2018-06-07", "value": 704, "sw_fraction": 0.004387, "depth": 45.0, "distance_coast_m": 1459.6, "x": 515721.53, "y": 4648962.11}, {"code": "17124-0020", "date": "2018-06-07", "value": 1299, "sw_fraction": 0.017183, "depth": 78.0, "distance_coast_m": 2134.46, "x": 515123.2, "y": 4648273.1}, {"code": "17191-0021", "date": "2018-06-07", "value": 1050, "sw_fraction": 0.011828, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17197-0009", "date": "2018-06-07", "value": 1018, "sw_fraction": 0.01114, "depth": 150.0, "distance_coast_m": 6180.64, "x": 512086.07, "y": 4645194.97}, {"code": "17199-0031", "date": "2018-06-07", "value": 1396, "sw_fraction": 0.019269, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17126-0040", "date": "2018-06-25", "value": 1323, "sw_fraction": 0.017699, "depth": 18.0, "distance_coast_m": 12262.67, "x": 503958.54, "y": 4653089.2}, {"code": "17211-0025", "date": "2018-06-25", "value": 1113, "sw_fraction": 0.013183, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17070-0009", "date": "2019-04-30", "value": 840, "sw_fraction": 0.007312, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17070-0012", "date": "2019-04-30", "value": 1721, "sw_fraction": 0.026258, "depth": 9.0, "distance_coast_m": 4793.88, "x": 512087.0, "y": 4650295.0}, {"code": "17022-0027", "date": "2019-05-08", "value": 731, "sw_fraction": 0.004968, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17070-0049", "date": "2019-05-08", "value": 974, "sw_fraction": 0.010194, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0004", "date": "2019-05-08", "value": 928, "sw_fraction": 0.009204, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17081-0008", "date": "2019-05-08", "value": 1670, "sw_fraction": 0.025161, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17081-0011", "date": "2019-05-08", "value": 1307, "sw_fraction": 0.017355, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17121-0027", "date": "2019-05-08", "value": 873, "sw_fraction": 0.008022, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17121-0061", "date": "2019-05-08", "value": 906, "sw_fraction": 0.008731, "depth": 105.0, "distance_coast_m": 7209.02, "x": 510279.5, "y": 4646728.15}, {"code": "17197-0009", "date": "2019-05-08", "value": 1030, "sw_fraction": 0.011398, "depth": 150.0, "distance_coast_m": 6180.64, "x": 512086.07, "y": 4645194.97}, {"code": "17199-0044", "date": "2019-05-08", "value": 1460, "sw_fraction": 0.020645, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17057-0009", "date": "2019-05-09", "value": 1489, "sw_fraction": 0.021269, "depth": 12.0, "distance_coast_m": 13090.95, "x": 503562.0, "y": 4650115.0}, {"code": "17191-0011", "date": "2019-05-09", "value": 1254, "sw_fraction": 0.016215, "depth": 9.0, "distance_coast_m": 9991.41, "x": 506232.0, "y": 4653068.0}, {"code": "17191-0021", "date": "2019-05-09", "value": 1209, "sw_fraction": 0.015247, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17195-0028", "date": "2019-05-09", "value": 911, "sw_fraction": 0.008839, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17070-0005", "date": "2019-05-14", "value": 1576, "sw_fraction": 0.02314, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17205-0012", "date": "2019-05-14", "value": 1195, "sw_fraction": 0.014946, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17124-0011", "date": "2019-05-15", "value": 2266, "sw_fraction": 0.037978, "depth": 45.0, "distance_coast_m": 1459.6, "x": 515721.53, "y": 4648962.11}, {"code": "17124-0020", "date": "2019-05-15", "value": 2812, "sw_fraction": 0.04972, "depth": 78.0, "distance_coast_m": 2134.46, "x": 515123.2, "y": 4648273.1}, {"code": "17199-0028", "date": "2019-05-15", "value": 899, "sw_fraction": 0.008581, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0029", "date": "2019-05-15", "value": 42000, "sw_fraction": 0.892473, "depth": 4.0, "distance_coast_m": 967.92, "x": 515786.54, "y": 4651312.11}, {"code": "17199-0031", "date": "2019-05-15", "value": 1602, "sw_fraction": 0.023699, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17211-0025", "date": "2019-05-21", "value": 1200, "sw_fraction": 0.015054, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17199-0037", "date": "2019-05-22", "value": 2290, "sw_fraction": 0.038495, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17126-0040", "date": "2019-08-21", "value": 1491, "sw_fraction": 0.021312, "depth": 18.0, "distance_coast_m": 12262.67, "x": 503958.54, "y": 4653089.2}, {"code": "17195-0028", "date": "2020-06-09", "value": 946, "sw_fraction": 0.009591, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17211-0025", "date": "2020-06-09", "value": 1274, "sw_fraction": 0.016645, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17070-0009", "date": "2020-06-16", "value": 1550, "sw_fraction": 0.022581, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17070-0012", "date": "2020-06-16", "value": 2034, "sw_fraction": 0.032989, "depth": 9.0, "distance_coast_m": 4793.88, "x": 512087.0, "y": 4650295.0}, {"code": "17081-0008", "date": "2020-06-16", "value": 1040, "sw_fraction": 0.011613, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17081-0011", "date": "2020-06-16", "value": 1271, "sw_fraction": 0.016581, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17199-0028", "date": "2020-06-16", "value": 1697, "sw_fraction": 0.025742, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0029", "date": "2020-06-16", "value": 1408, "sw_fraction": 0.019527, "depth": 4.0, "distance_coast_m": 967.92, "x": 515786.54, "y": 4651312.11}, {"code": "17199-0031", "date": "2020-06-16", "value": 1982, "sw_fraction": 0.031871, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0037", "date": "2020-06-16", "value": 2880, "sw_fraction": 0.051183, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17199-0044", "date": "2020-06-16", "value": 1466, "sw_fraction": 0.020774, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17022-0027", "date": "2020-06-17", "value": 753, "sw_fraction": 0.005441, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17057-0009", "date": "2020-06-17", "value": 1672, "sw_fraction": 0.025204, "depth": 12.0, "distance_coast_m": 13090.95, "x": 503562.0, "y": 4650115.0}, {"code": "17070-0049", "date": "2020-06-17", "value": 1072, "sw_fraction": 0.012301, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0004", "date": "2020-06-17", "value": 1004, "sw_fraction": 0.010839, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17121-0027", "date": "2020-06-17", "value": 949, "sw_fraction": 0.009656, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17191-0011", "date": "2020-06-17", "value": 1523, "sw_fraction": 0.022, "depth": 9.0, "distance_coast_m": 9991.41, "x": 506232.0, "y": 4653068.0}, {"code": "17191-0021", "date": "2020-06-17", "value": 1385, "sw_fraction": 0.019032, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17126-0040", "date": "2020-09-15", "value": 1513, "sw_fraction": 0.021785, "depth": 18.0, "distance_coast_m": 12262.67, "x": 503958.54, "y": 4653089.2}, {"code": "17211-0025", "date": "2021-05-17", "value": 1298, "sw_fraction": 0.017161, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17195-0028", "date": "2021-05-19", "value": 988, "sw_fraction": 0.010495, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17057-0009", "date": "2021-05-24", "value": 1414, "sw_fraction": 0.019656, "depth": 12.0, "distance_coast_m": 13090.95, "x": 503562.0, "y": 4650115.0}, {"code": "17070-0009", "date": "2021-05-24", "value": 983, "sw_fraction": 0.010387, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17070-0012", "date": "2021-05-24", "value": 2061, "sw_fraction": 0.03357, "depth": 9.0, "distance_coast_m": 4793.88, "x": 512087.0, "y": 4650295.0}, {"code": "17081-0011", "date": "2021-05-24", "value": 1422, "sw_fraction": 0.019828, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17191-0011", "date": "2021-05-24", "value": 1627, "sw_fraction": 0.024237, "depth": 9.0, "distance_coast_m": 9991.41, "x": 506232.0, "y": 4653068.0}, {"code": "17191-0021", "date": "2021-05-24", "value": 1262, "sw_fraction": 0.016387, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17199-0031", "date": "2021-05-24", "value": 2370, "sw_fraction": 0.040215, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0044", "date": "2021-05-24", "value": 1474, "sw_fraction": 0.020946, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17205-0012", "date": "2021-05-24", "value": 1220, "sw_fraction": 0.015484, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17022-0027", "date": "2021-05-25", "value": 879, "sw_fraction": 0.008151, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17070-0005", "date": "2021-05-25", "value": 1557, "sw_fraction": 0.022731, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17070-0049", "date": "2021-05-25", "value": 1064, "sw_fraction": 0.012129, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0004", "date": "2021-05-25", "value": 1048, "sw_fraction": 0.011785, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17081-0008", "date": "2021-05-25", "value": 1815, "sw_fraction": 0.02828, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17121-0027", "date": "2021-05-25", "value": 869, "sw_fraction": 0.007935, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17121-0061", "date": "2021-05-25", "value": 962, "sw_fraction": 0.009935, "depth": 105.0, "distance_coast_m": 7209.02, "x": 510279.5, "y": 4646728.15}, {"code": "17197-0009", "date": "2021-05-25", "value": 1106, "sw_fraction": 0.013032, "depth": 150.0, "distance_coast_m": 6180.64, "x": 512086.07, "y": 4645194.97}, {"code": "17124-0011", "date": "2021-05-26", "value": 1275, "sw_fraction": 0.016667, "depth": 45.0, "distance_coast_m": 1459.6, "x": 515721.53, "y": 4648962.11}, {"code": "17124-0020", "date": "2021-05-26", "value": 1829, "sw_fraction": 0.028581, "depth": 78.0, "distance_coast_m": 2134.46, "x": 515123.2, "y": 4648273.1}, {"code": "17199-0028", "date": "2021-05-26", "value": 1328, "sw_fraction": 0.017806, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0037", "date": "2021-05-26", "value": 2580, "sw_fraction": 0.044731, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17199-0060", "date": "2021-05-26", "value": 9500, "sw_fraction": 0.193548, "depth": 3.0, "distance_coast_m": 1266.39, "x": 515485.54, "y": 4651296.11}, {"code": "17126-0040", "date": "2021-09-22", "value": 1535, "sw_fraction": 0.022258, "depth": 18.0, "distance_coast_m": 12262.67, "x": 503958.54, "y": 4653089.2}, {"code": "17211-0025", "date": "2022-05-18", "value": 1232, "sw_fraction": 0.015742, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17057-0009", "date": "2022-05-23", "value": 1232, "sw_fraction": 0.015742, "depth": 12.0, "distance_coast_m": 13090.95, "x": 503562.0, "y": 4650115.0}, {"code": "17070-0009", "date": "2022-05-23", "value": 1007, "sw_fraction": 0.010903, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17081-0011", "date": "2022-05-23", "value": 1610, "sw_fraction": 0.023871, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17191-0011", "date": "2022-05-23", "value": 2102, "sw_fraction": 0.034452, "depth": 9.0, "distance_coast_m": 9991.41, "x": 506232.0, "y": 4653068.0}, {"code": "17191-0021", "date": "2022-05-23", "value": 1263, "sw_fraction": 0.016409, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17199-0031", "date": "2022-05-23", "value": 2260, "sw_fraction": 0.037849, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0044", "date": "2022-05-23", "value": 1429, "sw_fraction": 0.019978, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17022-0027", "date": "2022-05-24", "value": 534, "sw_fraction": 0.000731, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17070-0005", "date": "2022-05-24", "value": 1550, "sw_fraction": 0.022581, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17070-0049", "date": "2022-05-24", "value": 1136, "sw_fraction": 0.013677, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0004", "date": "2022-05-24", "value": 1038, "sw_fraction": 0.01157, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17081-0008", "date": "2022-05-24", "value": 1165, "sw_fraction": 0.014301, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17121-0027", "date": "2022-05-24", "value": 974, "sw_fraction": 0.010194, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17121-0061", "date": "2022-05-24", "value": 986, "sw_fraction": 0.010452, "depth": 105.0, "distance_coast_m": 7209.02, "x": 510279.5, "y": 4646728.15}, {"code": "17197-0009", "date": "2022-05-24", "value": 1092, "sw_fraction": 0.012731, "depth": 150.0, "distance_coast_m": 6180.64, "x": 512086.07, "y": 4645194.97}, {"code": "17195-0028", "date": "2022-05-25", "value": 974, "sw_fraction": 0.010194, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17205-0012", "date": "2022-05-25", "value": 1131, "sw_fraction": 0.01357, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17124-0011", "date": "2022-05-30", "value": 1021, "sw_fraction": 0.011204, "depth": 45.0, "distance_coast_m": 1459.6, "x": 515721.53, "y": 4648962.11}, {"code": "17124-0020", "date": "2022-05-30", "value": 1752, "sw_fraction": 0.026925, "depth": 78.0, "distance_coast_m": 2134.46, "x": 515123.2, "y": 4648273.1}, {"code": "17199-0028", "date": "2022-05-30", "value": 1188, "sw_fraction": 0.014796, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0037", "date": "2022-05-30", "value": 2370, "sw_fraction": 0.040215, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17199-0060", "date": "2022-05-30", "value": 6550, "sw_fraction": 0.130108, "depth": 3.0, "distance_coast_m": 1266.39, "x": 515485.54, "y": 4651296.11}, {"code": "17126-0040", "date": "2022-06-20", "value": 1729, "sw_fraction": 0.02643, "depth": 18.0, "distance_coast_m": 12262.67, "x": 503958.54, "y": 4653089.2}, {"code": "17057-0009", "date": "2023-04-25", "value": 1000, "sw_fraction": 0.010753, "depth": 12.0, "distance_coast_m": 13090.95, "x": 503562.0, "y": 4650115.0}, {"code": "17121-0027", "date": "2023-04-25", "value": 1003, "sw_fraction": 0.010817, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17126-0040", "date": "2023-04-25", "value": 1337, "sw_fraction": 0.018, "depth": 18.0, "distance_coast_m": 12262.67, "x": 503958.54, "y": 4653089.2}, {"code": "17199-0044", "date": "2023-04-25", "value": 1290, "sw_fraction": 0.016989, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17070-0005", "date": "2023-05-09", "value": 1591, "sw_fraction": 0.023462, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17121-0061", "date": "2023-05-09", "value": 965, "sw_fraction": 0.01, "depth": 105.0, "distance_coast_m": 7209.02, "x": 510279.5, "y": 4646728.15}, {"code": "17197-0009", "date": "2023-05-09", "value": 1065, "sw_fraction": 0.012151, "depth": 150.0, "distance_coast_m": 6180.64, "x": 512086.07, "y": 4645194.97}, {"code": "17199-0028", "date": "2023-05-09", "value": 1061, "sw_fraction": 0.012065, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0031", "date": "2023-05-09", "value": 2169, "sw_fraction": 0.035892, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0037", "date": "2023-05-09", "value": 2031, "sw_fraction": 0.032925, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17081-0011", "date": "2023-05-16", "value": 1392, "sw_fraction": 0.019183, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17191-0011", "date": "2023-05-16", "value": 1854, "sw_fraction": 0.029118, "depth": 9.0, "distance_coast_m": 9991.41, "x": 506232.0, "y": 4653068.0}, {"code": "17191-0021", "date": "2023-05-16", "value": 1178, "sw_fraction": 0.014581, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17211-0025", "date": "2023-05-16", "value": 1300, "sw_fraction": 0.017204, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17022-0027", "date": "2023-05-17", "value": 621, "sw_fraction": 0.002602, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17070-0049", "date": "2023-05-17", "value": 1072, "sw_fraction": 0.012301, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0004", "date": "2023-05-17", "value": 1042, "sw_fraction": 0.011656, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17195-0028", "date": "2023-05-17", "value": 955, "sw_fraction": 0.009785, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17081-0008", "date": "2023-05-23", "value": 588, "sw_fraction": 0.001892, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17124-0011", "date": "2023-05-23", "value": 1007, "sw_fraction": 0.010903, "depth": 45.0, "distance_coast_m": 1459.6, "x": 515721.53, "y": 4648962.11}, {"code": "17205-0012", "date": "2023-05-23", "value": 1162, "sw_fraction": 0.014237, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17070-0009", "date": "2023-09-06", "value": 929, "sw_fraction": 0.009226, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17199-0060", "date": "2023-09-26", "value": 18860, "sw_fraction": 0.394839, "depth": 3.0, "distance_coast_m": 1266.39, "x": 515485.54, "y": 4651296.11}, {"code": "17070-0049", "date": "2024-04-16", "value": 1044, "sw_fraction": 0.011699, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0004", "date": "2024-04-16", "value": 1009, "sw_fraction": 0.010946, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17199-0028", "date": "2024-04-22", "value": 1097, "sw_fraction": 0.012839, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0031", "date": "2024-04-22", "value": 1480, "sw_fraction": 0.021075, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17199-0037", "date": "2024-04-22", "value": 1285, "sw_fraction": 0.016882, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17199-0044", "date": "2024-04-22", "value": 1337, "sw_fraction": 0.018, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17022-0027", "date": "2024-04-23", "value": 739, "sw_fraction": 0.00514, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17081-0011", "date": "2024-04-23", "value": 1473, "sw_fraction": 0.020925, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17126-0040", "date": "2024-04-23", "value": 1383, "sw_fraction": 0.018989, "depth": 18.0, "distance_coast_m": 12262.67, "x": 503958.54, "y": 4653089.2}, {"code": "17191-0021", "date": "2024-04-23", "value": 1186, "sw_fraction": 0.014753, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}, {"code": "17211-0025", "date": "2024-04-23", "value": 1248, "sw_fraction": 0.016086, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17081-0008", "date": "2024-04-24", "value": 1866, "sw_fraction": 0.029376, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17195-0028", "date": "2024-04-24", "value": 905, "sw_fraction": 0.00871, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17199-0060", "date": "2024-04-24", "value": 868, "sw_fraction": 0.007914, "depth": 3.0, "distance_coast_m": 1266.39, "x": 515485.54, "y": 4651296.11}, {"code": "17199-0091", "date": "2024-04-24", "value": 1152, "sw_fraction": 0.014022, "depth": 4.45, "distance_coast_m": 3296.21, "x": 513331.54, "y": 4651520.13}, {"code": "17205-0012", "date": "2024-04-24", "value": 1248, "sw_fraction": 0.016086, "depth": 13.0, "distance_coast_m": 11577.79, "x": 505007.0, "y": 4650570.0}, {"code": "17199-0037", "date": "2024-05-08", "value": 1229, "sw_fraction": 0.015677, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17070-0005", "date": "2024-07-16", "value": 1412, "sw_fraction": 0.019613, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17121-0027", "date": "2024-07-16", "value": 837, "sw_fraction": 0.007247, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17197-0009", "date": "2024-07-16", "value": 1065, "sw_fraction": 0.012151, "depth": 150.0, "distance_coast_m": 6180.64, "x": 512086.07, "y": 4645194.97}, {"code": "17121-0061", "date": "2024-07-17", "value": 940, "sw_fraction": 0.009462, "depth": 105.0, "distance_coast_m": 7209.02, "x": 510279.5, "y": 4646728.15}, {"code": "17124-0011", "date": "2024-07-17", "value": 832, "sw_fraction": 0.00714, "depth": 45.0, "distance_coast_m": 1459.6, "x": 515721.53, "y": 4648962.11}, {"code": "17070-0009", "date": "2025-04-02", "value": 1116, "sw_fraction": 0.013247, "depth": 6.0, "distance_coast_m": 8988.4, "x": 507227.0, "y": 4653526.0}, {"code": "17070-0049", "date": "2025-04-16", "value": 1044, "sw_fraction": 0.011699, "depth": 41.0, "distance_coast_m": 9323.92, "x": 506904.0, "y": 4653958.0}, {"code": "17081-0004", "date": "2025-04-16", "value": 1009, "sw_fraction": 0.010946, "depth": 30.0, "distance_coast_m": 7700.91, "x": 508514.55, "y": 4653530.17}, {"code": "17199-0028", "date": "2025-04-23", "value": 1294, "sw_fraction": 0.017075, "depth": 15.0, "distance_coast_m": 2339.71, "x": 514207.0, "y": 4651945.0}, {"code": "17199-0037", "date": "2025-04-23", "value": 1545, "sw_fraction": 0.022473, "depth": 3.9, "distance_coast_m": 2712.0, "x": 513768.55, "y": 4652137.13}, {"code": "17199-0044", "date": "2025-04-23", "value": 1301, "sw_fraction": 0.017226, "depth": 5.0, "distance_coast_m": 5361.53, "x": 510868.0, "y": 4653863.0}, {"code": "17081-0008", "date": "2025-04-28", "value": 1774, "sw_fraction": 0.027398, "depth": 44.0, "distance_coast_m": 7269.31, "x": 508947.6, "y": 4653316.1}, {"code": "17081-0011", "date": "2025-04-28", "value": 1390, "sw_fraction": 0.01914, "depth": 12.0, "distance_coast_m": 6681.74, "x": 509552.0, "y": 4652975.0}, {"code": "17199-0031", "date": "2025-04-28", "value": 1515, "sw_fraction": 0.021828, "depth": 7.0, "distance_coast_m": 2126.57, "x": 514182.0, "y": 4652845.0}, {"code": "17211-0025", "date": "2025-04-28", "value": 1186, "sw_fraction": 0.014753, "depth": 33.0, "distance_coast_m": 10949.58, "x": 503712.0, "y": 4656215.0}, {"code": "17126-0040", "date": "2025-04-29", "value": 1331, "sw_fraction": 0.017871, "depth": 18.0, "distance_coast_m": 12262.67, "x": 503958.54, "y": 4653089.2}, {"code": "17195-0028", "date": "2025-06-04", "value": 1020, "sw_fraction": 0.011183, "depth": 34.9, "distance_coast_m": 9716.29, "x": 506546.56, "y": 4655570.19}, {"code": "17199-0060", "date": "2025-06-04", "value": 1034, "sw_fraction": 0.011484, "depth": 3.0, "distance_coast_m": 1266.39, "x": 515485.54, "y": 4651296.11}, {"code": "17070-0005", "date": "2025-07-22", "value": 1356, "sw_fraction": 0.018409, "depth": 40.0, "distance_coast_m": 7892.53, "x": 508726.53, "y": 4650935.17}, {"code": "17121-0061", "date": "2025-07-22", "value": 946, "sw_fraction": 0.009591, "depth": 105.0, "distance_coast_m": 7209.02, "x": 510279.5, "y": 4646728.15}, {"code": "17124-0020", "date": "2025-07-22", "value": 1379, "sw_fraction": 0.018903, "depth": 78.0, "distance_coast_m": 2134.46, "x": 515123.2, "y": 4648273.1}, {"code": "17121-0027", "date": "2025-07-29", "value": 818, "sw_fraction": 0.006839, "depth": 150.0, "distance_coast_m": 8389.26, "x": 508839.51, "y": 4648143.16}, {"code": "17022-0027", "date": "2025-12-01", "value": 800, "sw_fraction": 0.006452, "depth": 17.0, "distance_coast_m": 13741.99, "x": 503478.0, "y": 4647694.0}, {"code": "17197-0009", "date": "2025-12-03", "value": 1857, "sw_fraction": 0.029183, "depth": 150.0, "distance_coast_m": 6180.64, "x": 512086.07, "y": 4645194.97}, {"code": "17199-0091", "date": "2025-12-10", "value": 2234, "sw_fraction": 0.03729, "depth": 4.45, "distance_coast_m": 3296.21, "x": 513331.54, "y": 4651520.13}, {"code": "17191-0021", "date": "2026-01-13", "value": 1106, "sw_fraction": 0.013032, "depth": 8.0, "distance_coast_m": 10487.41, "x": 505732.0, "y": 4653176.0}];
+
+// ── derived data ──────────────────────────────────
+const EC_FW = 500, EC_SW = 47000;
+function classify(f) {
+  if (f > 0.25) return '#E24B4A';
+  if (f > 0.05) return '#EF9F27';
+  return '#1D9E75';
+}
+
+const wellMap = {};
+RAW.forEach(r => {
+  if (!wellMap[r.code]) wellMap[r.code] = { code:r.code, vals:[], dist:r.distance_coast_m, x:r.x, y:r.y };
+  wellMap[r.code].vals.push(r);
+});
+const wells = Object.values(wellMap).map(w => ({
+  code: w.code,
+  dist: w.dist,
+  distKm: (w.dist/1000),
+  x: w.x, y: w.y,
+  mean: w.vals.reduce((a,b)=>a+b.sw_fraction,0)/w.vals.length,
+  max: Math.max(...w.vals.map(v=>v.sw_fraction)),
+  n: w.vals.length
+})).sort((a,b)=>a.dist-b.dist);
+
+// ── metrics ───────────────────────────────────────
+const contaminated = wells.filter(w=>w.mean>0.05).length;
+const maxSW = Math.max(...RAW.map(r=>r.sw_fraction));
+document.getElementById('metrics').innerHTML = `
+  <div class="metric"><div class="metric-label">Observations</div><div class="metric-value">${RAW.length}</div><div class="metric-sub">2007 – 2026</div></div>
+  <div class="metric"><div class="metric-label">Wells monitored</div><div class="metric-value">${wells.length}</div><div class="metric-sub">unique piezometers</div></div>
+  <div class="metric"><div class="metric-label">Affected wells</div><div class="metric-value">${contaminated}</div><div class="metric-sub">mean SW &gt; 5%</div></div>
+  <div class="metric"><div class="metric-label">Peak SW fraction</div><div class="metric-value" style="color:var(--saline)">${(maxSW*100).toFixed(0)}%</div><div class="metric-sub">well 17199-0029</div></div>
+`;
+document.getElementById('nObs').textContent = RAW.length;
+
+// ── CSV download ──────────────────────────────────
+const csvRows = ['code,date,value_uS_cm,sw_fraction,depth_m,distance_coast_m,x_etrs89,y_etrs89'];
+RAW.forEach(r => csvRows.push([r.code,r.date,r.value,r.sw_fraction.toFixed(6),r.depth,r.distance_coast_m,r.x,r.y].join(',')));
+const csvBlob = new Blob([csvRows.join('\n')], {type:'text/csv'});
+document.getElementById('dlCsv').href = URL.createObjectURL(csvBlob);
+
+// ── panel switching ───────────────────────────────
+let mapInit = false;
+function showPanel(id, el) {
+  event.preventDefault();
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
+  document.getElementById('panel-'+id).classList.add('active');
+  el.classList.add('active');
+  if (id==='map' && !mapInit) { initMap(); mapInit=true; }
+}
+
+// ── Chart defaults ────────────────────────────────
+Chart.defaults.font.family = "'DM Mono', monospace";
+Chart.defaults.font.size = 11;
+Chart.defaults.color = '#9a9a90';
+
+// ── TRANSECT ──────────────────────────────────────
+new Chart(document.getElementById('transectChart'), {
+  type: 'bubble',
+  data: { datasets: [{ label:'Wells', data: wells.map(w=>({x:w.distKm,y:w.mean*100,r:Math.max(5,Math.min(22,w.n*1.8))})),
+    backgroundColor: wells.map(w=>classify(w.mean)+'BB'), borderColor: wells.map(w=>classify(w.mean)), borderWidth:1 }] },
+  options: { responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=>{
+      const w=wells[ctx.dataIndex];
+      return [`${w.code}`,`${w.distKm.toFixed(1)} km from coast`,`Mean SW: ${(w.mean*100).toFixed(1)}%`,`Max SW: ${(w.max*100).toFixed(1)}%`,`n=${w.n}`];
+    }}}},
+    scales:{ x:{title:{display:true,text:'Distance from coast (km)'},min:0,max:16}, y:{title:{display:true,text:'Mean SW fraction (%)'},min:-1,max:45} }
+  }
+});
+
+// ── TIME SERIES ───────────────────────────────────
+const wellCodes = [...new Set(RAW.map(r=>r.code))].sort();
+const wSel = document.getElementById('wellSelect');
+wellCodes.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.text=c; wSel.appendChild(o); });
+wSel.value='17199-0029';
+let tsChart=null;
+function updateTS(){
+  const code=wSel.value;
+  const pts=RAW.filter(r=>r.code===code).sort((a,b)=>a.date.localeCompare(b.date));
+  const well=wells.find(w=>w.code===code);
+  if(tsChart) tsChart.destroy();
+  tsChart=new Chart(document.getElementById('tsChart'),{
+    type:'line',
+    data:{ labels:pts.map(p=>p.date), datasets:[{
+      label:'SW fraction (%)', data:pts.map(p=>+(p.sw_fraction*100).toFixed(2)),
+      borderColor:'#1a4a3a', backgroundColor:'rgba(26,74,58,.08)',
+      pointBackgroundColor:pts.map(p=>classify(p.sw_fraction)),
+      pointBorderColor:pts.map(p=>classify(p.sw_fraction)),
+      pointRadius:5, tension:0.25, fill:true }]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{ x:{ticks:{maxRotation:40,autoSkip:true,maxTicksLimit:12}},
+        y:{title:{display:true,text:'Seawater fraction (%)'},min:0} }}
+  });
+  document.getElementById('tsNote').textContent =
+    `Well ${code} · ${well ? well.distKm.toFixed(1)+' km from coast' : ''} · ${pts.length} measurements`;
+}
+updateTS();
+
+// ── DEPTH ─────────────────────────────────────────
+const years=[...new Set(RAW.map(r=>r.date.slice(0,4)))].sort();
+const ySel=document.getElementById('yearSelect');
+years.forEach(y=>{ const o=document.createElement('option'); o.value=y; o.text=y; ySel.appendChild(o); });
+ySel.value='2019';
+let depthChart=null;
+function updateDepth(){
+  const yr=ySel.value;
+  const pts=RAW.filter(r=>r.date.startsWith(yr));
+  const zones=[['< 3 km','#E24B4A',0,3000],['3–7 km','#EF9F27',3000,7000],['>7 km','#1D9E75',7000,Infinity]];
+  if(depthChart) depthChart.destroy();
+  depthChart=new Chart(document.getElementById('depthChart'),{
+    type:'scatter',
+    data:{ datasets: zones.map(([label,color,lo,hi])=>({
+      label, color,
+      data: pts.filter(p=>p.distance_coast_m>=lo&&p.distance_coast_m<hi).map(p=>({x:+(p.sw_fraction*100).toFixed(2),y:p.depth})),
+      backgroundColor:color+'BB', pointRadius:6, borderColor:color, borderWidth:1 }))},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:true,position:'top',labels:{boxWidth:10,font:{size:11}}} },
+      scales:{ x:{title:{display:true,text:'Seawater fraction (%)'},min:-0.5},
+        y:{title:{display:true,text:'Depth (m bgl)'},reverse:true,min:0} }}
+  });
+}
+updateDepth();
+
+// ── WEDGE ─────────────────────────────────────────
+new Chart(document.getElementById('wedgeChart'),{
+  type:'bar',
+  data:{ labels: wells.map(w=>w.distKm.toFixed(1)+' km'),
+    datasets:[
+      { label:'Max SW (%)', data:wells.map(w=>+(w.max*100).toFixed(1)),
+        backgroundColor:wells.map(w=>classify(w.max)+'99'), borderColor:wells.map(w=>classify(w.max)), borderWidth:0.5 },
+      { label:'Mean SW (%)', data:wells.map(w=>+(w.mean*100).toFixed(1)),
+        type:'line', borderColor:'#1a4a3a', backgroundColor:'rgba(26,74,58,.1)', pointRadius:4, tension:0.3 }
+    ]},
+  options:{ responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{display:true,position:'top',labels:{boxWidth:10,font:{size:11}}},
+      annotation:{} },
+    scales:{ x:{title:{display:true,text:'← coast     distance from coast (km)     inland →'},
+        ticks:{maxRotation:55,font:{size:9},autoSkip:false}},
+      y:{title:{display:true,text:'SW fraction (%)'},min:0} }}
+});
+
+const wt=document.getElementById('wedgeTable');
+const salineW=wells.filter(w=>w.max>0.25);
+wt.innerHTML=`
+  <tr><td>Saltwater toe (peak >50%)</td><td>~1 km</td></tr>
+  <tr><td>Mixing zone extent</td><td>1 – 6 km</td></tr>
+  <tr><td>Freshwater zone start</td><td>>7 km</td></tr>
+  <tr><td>Strongest intrusion period</td><td>2007 – 2013</td></tr>
+  <tr><td>Wells ever >25% SW</td><td>${salineW.length} wells</td></tr>
+`;
+
+// ── MAP ───────────────────────────────────────────
+function utmToLatLng(x, y) {
+  // Approximate UTM 31N (ETRS89) to WGS84 — good to ~10 m for this region
+  const a=6378137, e2=0.00669438, k0=0.9996;
+  const x0=500000, y0=0;
+  const M0=0, lon0=3*Math.PI/180;
+  const xp=x-x0, yp=y-y0;
+  const M=M0+yp/k0;
+  const mu=M/(a*(1-e2/4-3*e2*e2/64));
+  const e1=(1-Math.sqrt(1-e2))/(1+Math.sqrt(1-e2));
+  const phi1=mu+(3*e1/2-27*e1*e1*e1/32)*Math.sin(2*mu)+(21*e1*e1/16)*Math.sin(4*mu)-(151*e1*e1*e1/96)*Math.sin(6*mu);
+  const N1=a/Math.sqrt(1-e2*Math.sin(phi1)*Math.sin(phi1));
+  const T1=Math.tan(phi1)*Math.tan(phi1);
+  const C1=e2*Math.cos(phi1)*Math.cos(phi1)/(1-e2);
+  const R1=a*(1-e2)/Math.pow(1-e2*Math.sin(phi1)*Math.sin(phi1),1.5);
+  const D=xp/(N1*k0);
+  const lat=phi1-(N1*Math.tan(phi1)/R1)*(D*D/2-(5+3*T1+10*C1-4*C1*C1-9*e2)*D*D*D*D/24+(61+90*T1+298*C1+45*T1*T1-252*e2-3*C1*C1)*D*D*D*D*D*D/720);
+  const lon=lon0+(D-(1+2*T1+C1)*D*D*D/6+(5-2*C1+28*T1-3*C1*C1+8*e2+24*T1*T1)*D*D*D*D*D/120)/Math.cos(phi1);
+  return [lat*180/Math.PI, lon*180/Math.PI];
+}
+
+function initMap(){
+  const map=L.map('leafletMap');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> contributors', maxZoom:18
+  }).addTo(map);
+  const bounds=[];
+  wells.forEach(w=>{
+    const [lat,lng]=utmToLatLng(w.x,w.y);
+    bounds.push([lat,lng]);
+    const color=classify(w.mean);
+    const marker=L.circleMarker([lat,lng],{
+      radius:Math.max(5,Math.min(14,w.n*0.9)),
+      fillColor:color, color:'#fff', weight:1.5, fillOpacity:0.85
+    }).addTo(map);
+    marker.bindPopup(`<b style="font-family:monospace">${w.code}</b><br>
+      Distance: ${w.distKm.toFixed(1)} km from coast<br>
+      Mean SW: ${(w.mean*100).toFixed(1)}%<br>
+      Max SW: ${(w.max*100).toFixed(1)}%<br>
+      Observations: ${w.n}`);
+  });
+  if(bounds.length) map.fitBounds(bounds,{padding:[30,30]});
+}
+</script>
+</body>
+</html>
